@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>我们的旅行足迹（共享版）</title>
+    <title>我们的旅行足迹</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         html, body {margin:0; padding:0; height:100%;}
@@ -120,7 +120,7 @@
             if (!currentFeature) return;
 
             // 输入 GitHub token
-            const token = prompt("请输入你的 GitHub Personal Access Token（仅保存时需要）：");
+            const token = prompt("柠檬和小羊的秘密：");
             if (!token) return;
 
             const cityName = currentFeature.properties.name;
@@ -201,3 +201,4 @@
     </script>
 </body>
 </html>
+
