@@ -46,41 +46,34 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script>
-        // 配置（只改这1处：你的共享密码）
-        const SHARE_PASSWORD = "1015316"; // 改成你想设置的密码，比如 "travel123"
-        const GITHUB_USER = "LotusDream413"; // 你的用户名（不用改）
-        const GITHUB_REPO = "MYLOVE"; // 你的仓库名（不用改）
-        const DATA_FILE = "travel_notes.json"; // 存储记录的文件（不用改）
+        // 配置（只改这2处）
+        const GITHUB_USER = "LotusDream413";   // 你的用户名
+        const GITHUB_REPO = "MYLOVE";          // 你的仓库名
+        const DATA_FILE = "travel_notes.json"; // 不用改
 
         var map;
         var currentFeature = null;
         var cityLayer = null;
-        var travelNotes = {}; // 所有共享记录
+        var travelNotes = {};
 
         // 1. 初始化地图
         function initMap() {
             map = L.map('map').setView([35, 105], 4);
-            // 高德底图（显示完整中国边界）
             L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
                 subdomains: ['1','2','3','4'],
                 attribution: '© 高德地图'
             }).addTo(map);
 
-            // 加载城市图层
             $.getJSON('china_cities_4326.geojson', function (data) {
                 cityLayer = L.geoJSON(data, {
                     style: function (feature) {
-                        // 从共享数据加载状态（亮橙色=去过，灰色=没去过）
                         var visited = travelNotes[feature.properties.name]?.visited || false;
                         return {
                             fillColor: visited ? '#FF8C00' : '#E0E0E0',
-                            weight: 1,
-                            color: '#666',
-                            fillOpacity: 0.7
+                            weight: 1, color: '#666', fillOpacity: 0.7
                         };
                     },
                     onEachFeature: function (feature, layer) {
-                        // 鼠标悬停高亮+显示城市名
                         layer.on('mouseover', function () {
                             this.setStyle({weight:3, color:'#FF0000', fillOpacity:0.9});
                             this.bindTooltip(feature.properties.name).openTooltip();
@@ -93,11 +86,9 @@
                             });
                             this.closeTooltip();
                         });
-                        // 点击城市打开输入弹窗
                         layer.on('click', function () {
                             currentFeature = feature;
                             $('#cityTitle').text('旅行感想 - ' + feature.properties.name);
-                            // 加载已保存的共享感想
                             $('#noteContent').val(travelNotes[feature.properties.name]?.notes || '');
                             $('#mask').show();
                             $('#noteModal').show();
@@ -107,15 +98,16 @@
             });
         }
 
-        // 2. 加载共享记录（从GitHub仓库读取）
+        // 2. 加载共享记录
         function loadTravelNotes() {
-            $.getJSON(`https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/${DATA_FILE}`, function (data) {
+            $.getJSON(`https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/${DATA_FILE}`)
+            .done(data => {
                 travelNotes = data;
                 $('#loading').text('共享记录加载完成！');
                 setTimeout(() => $('#loading').hide(), 1000);
-                initMap(); // 加载完数据再显示地图
-            }).fail(function () {
-                // 首次使用，创建空记录
+                initMap();
+            })
+            .fail(() => {
                 travelNotes = {};
                 $('#loading').text('首次使用，创建新记录！');
                 setTimeout(() => $('#loading').hide(), 1000);
@@ -123,99 +115,89 @@
             });
         }
 
-        // 3. 保存感想（先验证密码）
+        // 3. 保存（输入 token）
         function saveNote() {
             if (!currentFeature) return;
-            
-            // 第一步：输入密码验证
-            var inputPwd = prompt("请输入共享密码才能保存：");
-            if (inputPwd !== SHARE_PASSWORD) {
-                alert('密码错误！无法保存');
-                return;
-            }
 
-            // 第二步：获取输入的感想
-            var cityName = currentFeature.properties.name;
-            var noteText = $('#noteContent').val();
-            
-            // 第三步：更新共享数据
+            // 输入 GitHub token
+            const token = prompt("请输入你的 GitHub Personal Access Token（仅保存时需要）：");
+            if (!token) return;
+
+            const cityName = currentFeature.properties.name;
+            const noteText = $('#noteContent').val();
+
+            // 更新数据
             travelNotes[cityName] = {
-                visited: true, // 标记为去过（城市亮橙色）
-                notes: noteText // 保存感想
+                visited: true,
+                notes: noteText
             };
 
-            // 第四步：保存到GitHub仓库
-            saveToGitHub();
+            // 保存到 GitHub
+            saveToGitHub(token);
         }
 
-        // 4. 保存到GitHub仓库（核心逻辑）
-        function saveToGitHub() {
-            // 先获取文件SHA（用于更新）
+        // 4. 写入 GitHub
+        function saveToGitHub(token) {
+            const url = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${DATA_FILE}`;
+            const content = btoa(unescape(encodeURIComponent(JSON.stringify(travelNotes))));
+
+            // 先获取 SHA
             $.ajax({
-                url: `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${DATA_FILE}`,
-                success: function (res) {
-                    // 更新已有文件
-                    updateFile(res.sha);
+                url,
+                headers: { Authorization: `token ${token}` },
+                success: res => {
+                    // 更新文件
+                    $.ajax({
+                        url,
+                        method: 'PUT',
+                        headers: { Authorization: `token ${token}` },
+                        data: JSON.stringify({
+                            message: `更新 ${currentFeature.properties.name}`,
+                            content,
+                            sha: res.sha
+                        }),
+                        success: () => {
+                            alert('保存成功！所有人都能看到～');
+                            cityLayer.resetStyle(currentFeature);
+                            closeModal();
+                        },
+                        error: err => {
+                            alert('保存失败：' + JSON.stringify(err.responseJSON));
+                        }
+                    });
                 },
-                error: function () {
-                    // 创建新文件（首次保存）
-                    createNewFile();
+                error: () => {
+                    // 创建新文件
+                    $.ajax({
+                        url,
+                        method: 'PUT',
+                        headers: { Authorization: `token ${token}` },
+                        data: JSON.stringify({
+                            message: '初始化旅行记录',
+                            content
+                        }),
+                        success: () => {
+                            alert('保存成功！所有人都能看到～');
+                            cityLayer.resetStyle(currentFeature);
+                            closeModal();
+                        },
+                        error: err => {
+                            alert('保存失败：' + JSON.stringify(err.responseJSON));
+                        }
+                    });
                 }
             });
         }
 
-        // 5. 更新已有文件
-        function updateFile(sha) {
-            $.ajax({
-                url: `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${DATA_FILE}`,
-                method: 'PUT',
-                data: JSON.stringify({
-                    message: '更新旅行记录：' + currentFeature.properties.name,
-                    content: btoa(unescape(encodeURIComponent(JSON.stringify(travelNotes)))),
-                    sha: sha
-                }),
-                success: function () {
-                    alert('保存成功！所有人都能看到这条记录～');
-                    cityLayer.resetStyle(currentFeature); // 城市立刻亮橙色
-                    closeModal();
-                },
-                error: function (err) {
-                    alert('保存失败：' + err.responseText);
-                }
-            });
-        }
-
-        // 6. 创建新文件
-        function createNewFile() {
-            $.ajax({
-                url: `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${DATA_FILE}`,
-                method: 'PUT',
-                data: JSON.stringify({
-                    message: '初始化旅行记录',
-                    content: btoa(unescape(encodeURIComponent(JSON.stringify(travelNotes))))
-                }),
-                success: function () {
-                    alert('保存成功！所有人都能看到这条记录～');
-                    cityLayer.resetStyle(currentFeature); // 城市立刻亮橙色
-                    closeModal();
-                },
-                error: function (err) {
-                    alert('保存失败：' + err.responseText);
-                }
-            });
-        }
-
-        // 7. 关闭弹窗
+        // 5. 关闭弹窗
         function closeModal() {
             $('#mask').hide();
             $('#noteModal').hide();
             currentFeature = null;
         }
 
-        // 页面加载后先加载共享记录
-        $(document).ready(function () {
-            loadTravelNotes();
-        });
+        // 启动
+        $(document).ready(loadTravelNotes);
     </script>
 </body>
 </html>
